@@ -1,7 +1,21 @@
 import { defineConfig, type Plugin } from "vite";
-import react from "@vitejs/plugin-react";
+import babel from "@rolldown/plugin-babel";
+import react, { reactCompilerPreset } from "@vitejs/plugin-react";
+
+/** React Compiler preset scoped to modules that can actually contain
+ *  components/hooks (JSX syntax or a react-ish import). The preset's default
+ *  code filter matches any PascalCase/use* declaration — effectively every TS
+ *  module — which made the babel pass parse the whole codebase. */
+function compilerPreset() {
+  const preset = reactCompilerPreset();
+  preset.rolldown.filter.code = /\/>|<\/|from\s*['"][^'"]*react/;
+  return preset;
+}
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { fileURLToPath } from "url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const BACKEND = process.env.HERMES_DASHBOARD_URL ?? "http://127.0.0.1:9119";
 
@@ -58,7 +72,12 @@ function hermesDevToken(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), tailwindcss(), hermesDevToken()],
+  plugins: [
+    react(),
+    babel({ presets: [compilerPreset()] }),
+    tailwindcss(),
+    hermesDevToken(),
+  ],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -86,6 +105,10 @@ export default defineConfig({
   build: {
     outDir: "../hermes_cli/web_dist",
     emptyOutDir: true,
+    // Dashboard ships static assets only — no prod source maps.
+    sourcemap: false,
+    // Hermes doesn't surface per-chunk gzip numbers; skip the pass.
+    reportCompressedSize: false,
     // Shell stays a bit over Vite's 500 kB default after vendor splits;
     // page/xterm chunks load on demand. Keep a modest ceiling so a true
     // regression still warns.
@@ -95,6 +118,10 @@ export default defineConfig({
     // imports in App.tsx create the route boundaries; these groups keep
     // shared node_modules out of every page chunk.
     rolldownOptions: {
+      checks: {
+        // Hide [PLUGIN_TIMINGS] noise (CSS/Tailwind dominate; not a failure).
+        pluginTimings: false,
+      },
       output: {
         codeSplitting: {
           minSize: 20_000,
